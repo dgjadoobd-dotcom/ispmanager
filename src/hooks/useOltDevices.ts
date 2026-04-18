@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { dbGet, dbInsert, dbUpdate, dbDelete, dbFind, now, TABLES } from "@/lib/db";
 import { useTenantContext } from "@/contexts/TenantContext";
 import { toast } from "sonner";
+import { testOltConnection, oltProxy } from "@/lib/oltApi";
 
 export interface OltDevice {
   id: string; tenant_id: string; name: string; brand: string;
@@ -208,5 +209,101 @@ export function useDeleteCustomerOnu() {
       toast.success("ONU রিমুভ করা হয়েছে");
     },
     onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+// ─── Live OLT connection test via proxy ──────────────────────────────────────
+
+export function useTestOltConnection() {
+  const { toast: showToast } = { toast: toast };
+  return useMutation({
+    mutationFn: async (device: OltDevice) => {
+      const result = await testOltConnection({
+        host: device.host,
+        port: device.port,
+        protocol: (device.protocol === "http" ? "http" : "http") as "http" | "https",
+        username: device.username,
+        password: device.credentials_encrypted ?? "",
+      });
+      if (!result.success) throw new Error(result.error || "Connection failed");
+      return result;
+    },
+    onSuccess: (data, device) => {
+      toast.success(`✅ ${device.name} — Connected`, { description: data.message });
+    },
+    onError: (e: Error, device) => {
+      toast.error(`❌ ${device.name} — Failed`, { description: e.message });
+    },
+  });
+}
+
+// ─── Live ONU list from OLT via proxy ────────────────────────────────────────
+
+export interface LiveOnu {
+  index: string;
+  serial?: string;
+  mac?: string;
+  status?: string;
+  rx_power?: string;
+  description?: string;
+  port?: string;
+  raw?: Record<string, string>;
+}
+
+export function useLiveOnus(device: OltDevice | null) {
+  return useQuery({
+    queryKey: ["live-onus", device?.id],
+    queryFn: async (): Promise<LiveOnu[]> => {
+      if (!device) return [];
+      // Try HTTP API first (for devices with HTTP API support)
+      if (device.protocol === "http") {
+        const result = await oltProxy(
+          { host: device.host, port: device.port, protocol: "http" },
+          "/api/onu/list",
+          "GET",
+          undefined,
+          { Authorization: `Basic ${btoa(`${device.username}:${device.credentials_encrypted ?? ""}`)}` }
+        );
+        if (result.success && Array.isArray(result.data)) {
+          return result.data as LiveOnu[];
+        }
+      }
+      // Fallback: use generic proxy to fetch ONU list via common OLT API paths
+      const paths = [
+        "/api/v1/onu/list",
+        "/api/onu",
+        "/cgi-bin/onu_list",
+        "/api/gpon/onus",
+      ];
+      for (const path of paths) {
+        const result = await oltProxy(
+          { host: device.host, port: device.port, protocol: "http" },
+          path,
+          "GET",
+          undefined,
+          { Authorization: `Basic ${btoa(`${device.username}:${device.credentials_encrypted ?? ""}`)}` }
+        );
+        if (result.success && result.data) {
+          const raw = result.data as any;
+          const list = Array.isArray(raw) ? raw : raw.onus || raw.data || raw.list || [];
+          if (list.length > 0) {
+            return list.map((o: any, i: number) => ({
+              index: o.index ?? o.id ?? String(i + 1),
+              serial: o.serial ?? o.onu_serial ?? o.sn,
+              mac: o.mac ?? o.mac_address,
+              status: o.status ?? o.onu_status ?? o.state,
+              rx_power: o.rx_power ?? o.rxPower ?? o.optical_rx,
+              description: o.description ?? o.name ?? o.alias,
+              port: o.port ?? o.pon_port,
+              raw: o,
+            }));
+          }
+        }
+      }
+      return [];
+    },
+    enabled: !!device,
+    staleTime: 30_000,
+    retry: 1,
   });
 }

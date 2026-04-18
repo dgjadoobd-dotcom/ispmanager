@@ -1,30 +1,41 @@
 import { useState } from "react";
-import { Server, Plus, Search, Eye, EyeOff, Wifi, WifiOff, RefreshCw, Pencil, Loader2, CheckCircle, XCircle } from "lucide-react";
+import { Server, Plus, Search, Eye, EyeOff, Wifi, WifiOff, RefreshCw, Pencil, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { dbGet, dbUpdate, now, TABLES } from "@/lib/db";
 import { supabase } from "@/integrations/supabase/client";
 import { useCurrentTenant } from "@/hooks/useTenant";
-import { useTestConnection } from "@/hooks/useNetworkIntegration";
+import { useTestConnection, useCreateNetworkIntegration } from "@/hooks/useNetworkIntegration";
 import { toast } from "sonner";
+
+const defaultForm = {
+  name: "", host: "", port: 8728, username: "", credentials_encrypted: "",
+  mikrotik_use_ssl: false, mikrotik_ppp_profile: "", mikrotik_address_list: "",
+};
 
 export default function MikrotikServersPage() {
   const { data: tenant } = useCurrentTenant();
   const tenantId = tenant?.id;
   const queryClient = useQueryClient();
   const testConnection = useTestConnection();
+  const createIntegration = useCreateNetworkIntegration();
   const [testingId, setTestingId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [entriesPerPage, setEntriesPerPage] = useState("10");
   const [currentPage, setCurrentPage] = useState(1);
   const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
+  const [addOpen, setAddOpen] = useState(false);
+  const [showPw, setShowPw] = useState(false);
+  const [form, setForm] = useState(defaultForm);
 
   const { data: servers = [], isLoading } = useQuery({
     queryKey: ["mikrotik-servers", tenantId],
@@ -69,6 +80,23 @@ export default function MikrotikServersPage() {
     }
   };
 
+  const handleAddServer = async () => {
+    if (!form.name || !form.host || !form.username || !form.credentials_encrypted) {
+      toast.error("Please fill in all required fields");
+      return;
+    }
+    await createIntegration.mutateAsync({
+      ...form,
+      provider_type: "mikrotik",
+      is_enabled: true,
+      sync_mode: "manual",
+      sync_interval_minutes: 60,
+    });
+    setAddOpen(false);
+    setForm(defaultForm);
+    queryClient.invalidateQueries({ queryKey: ["mikrotik-servers"] });
+  };
+
   const filtered = servers.filter(
     (s) =>
       s.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -102,7 +130,7 @@ export default function MikrotikServersPage() {
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">System &gt; Server</span>
-          <Button size="sm">
+          <Button size="sm" onClick={() => setAddOpen(true)}>
             <Plus className="h-4 w-4 mr-1" /> Server
           </Button>
         </div>
@@ -299,6 +327,72 @@ export default function MikrotikServersPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Add Server Dialog */}
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Add MikroTik Server</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2 space-y-1">
+                <Label>Server Name *</Label>
+                <Input placeholder="Main Router" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label>Host / IP *</Label>
+                <Input placeholder="192.168.1.1" value={form.host} onChange={e => setForm(f => ({ ...f, host: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label>Port</Label>
+                <Input type="number" value={form.port} onChange={e => setForm(f => ({ ...f, port: parseInt(e.target.value) || 8728 }))} />
+              </div>
+              <div className="space-y-1">
+                <Label>Username *</Label>
+                <Input placeholder="admin" value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label>Password *</Label>
+                <div className="relative">
+                  <Input
+                    type={showPw ? "text" : "password"}
+                    placeholder="••••••••"
+                    value={form.credentials_encrypted}
+                    onChange={e => setForm(f => ({ ...f, credentials_encrypted: e.target.value }))}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPw(p => !p)}
+                    className="absolute right-2 top-2.5 text-muted-foreground hover:text-foreground"
+                  >
+                    {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label>PPP Profile</Label>
+                <Input placeholder="default" value={form.mikrotik_ppp_profile} onChange={e => setForm(f => ({ ...f, mikrotik_ppp_profile: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label>Block Address List</Label>
+                <Input placeholder="blocked" value={form.mikrotik_address_list} onChange={e => setForm(f => ({ ...f, mikrotik_address_list: e.target.value }))} />
+              </div>
+              <div className="col-span-2 flex items-center justify-between">
+                <Label>Use SSL/TLS (port 8729)</Label>
+                <Switch checked={form.mikrotik_use_ssl} onCheckedChange={v => setForm(f => ({ ...f, mikrotik_use_ssl: v, port: v ? 8729 : 8728 }))} />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
+            <Button onClick={handleAddServer} disabled={createIntegration.isPending}>
+              {createIntegration.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Add Server
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

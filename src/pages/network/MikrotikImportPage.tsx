@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 import { useNetworkIntegrations, usePPPSecrets, useActivePPP } from "@/hooks/useNetworkIntegration";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const statusStyles: Record<string, string> = {
   active: "bg-success/15 text-success border-success/30",
@@ -247,7 +248,37 @@ export default function MikrotikImportPage() {
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                             <Switch checked={client.enabled} className="scale-75" />
+                            <Switch
+                              checked={client.enabled}
+                              className="scale-75"
+                              onCheckedChange={async (checked) => {
+                                const integration = activeServers.find(s => s.id === effectiveServerId);
+                                if (!integration) { toast.error("No active server selected"); return; }
+                                try {
+                                  const res = await fetch(`/api/mikrotik/ppp/${checked ? "enable" : "disable"}`, {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({
+                                      host: integration.host,
+                                      port: integration.port,
+                                      username: integration.username,
+                                      password: integration.credentials_encrypted ?? "",
+                                      use_ssl: integration.mikrotik_use_ssl,
+                                      ppp_username: client.name,
+                                    }),
+                                  });
+                                  const data = await res.json();
+                                  if (data.success) {
+                                    toast.success(data.message);
+                                    refetchSecrets();
+                                  } else {
+                                    toast.error(data.error || "Failed");
+                                  }
+                                } catch {
+                                  toast.error("Proxy unreachable");
+                                }
+                              }}
+                            />
                           </TooltipTrigger>
                           <TooltipContent>{client.enabled ? "Disable" : "Enable"} Secret</TooltipContent>
                         </Tooltip>
@@ -325,4 +356,3 @@ export default function MikrotikImportPage() {
     </div>
   );
 }
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";

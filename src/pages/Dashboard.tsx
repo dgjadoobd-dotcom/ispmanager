@@ -27,19 +27,33 @@ export default function Dashboard() {
 
   const now = new Date();
   const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
 
   // Client metrics
   const totalCustomers = isDemoMode ? demoMetrics.totalCustomers : customers.length;
   const activeCustomers = isDemoMode ? demoMetrics.activeCustomers : customers.filter(c => c.connection_status === "active").length;
   const suspendedCustomers = isDemoMode ? demoMetrics.suspendedCustomers : customers.filter(c => c.connection_status === "suspended").length;
-  const inactiveCustomers = isDemoMode ? 0 : customers.filter(c => !c.connection_status || c.connection_status === "pending").length;
+  const inactiveCustomers = isDemoMode ? 0 : customers.filter(c => c.connection_status === "pending").length;
 
-  const newCustomersThisMonth = isDemoMode ? demoMetrics.newCustomersThisMonth : customers.filter(c => new Date(c.join_date) >= thisMonthStart).length;
+  const newCustomersThisMonth = isDemoMode ? demoMetrics.newCustomersThisMonth : customers.filter(c => c.join_date && new Date(c.join_date) >= thisMonthStart).length;
+
+  // Renewed = customers who paid this month but joined before this month
+  const renewedCustomers = isDemoMode ? 0 : (() => {
+    const paidThisMonthCustomerIds = new Set(
+      payments.filter(p => new Date(p.created_at) >= thisMonthStart).map(p => p.customer_id)
+    );
+    return customers.filter(c => c.join_date && new Date(c.join_date) < thisMonthStart && paidThisMonthCustomerIds.has(c.id)).length;
+  })();
+
+  // Deactivated = suspended this month (updated_at this month and suspended)
+  const deactivatedCustomers = isDemoMode ? 0 : customers.filter(c =>
+    c.connection_status === "suspended" && new Date(c.updated_at) >= thisMonthStart
+  ).length;
+
+  // Expired = overdue bills this month
+  const thisMonthBills = isDemoMode ? [] : bills.filter(b => new Date(b.created_at) >= thisMonthStart);
+  const expiredCustomers = isDemoMode ? 0 : bills.filter(b => b.status === "overdue").length;
 
   // Billing metrics
-  const thisMonthBills = isDemoMode ? [] : bills.filter(b => new Date(b.created_at) >= thisMonthStart);
   const billedCount = isDemoMode ? demoMetrics.monthlyBillsCount : thisMonthBills.length;
   const paidCount = isDemoMode ? 0 : thisMonthBills.filter(b => b.status === "paid").length;
   const partiallyPaidCount = isDemoMode ? 0 : thisMonthBills.filter(b => b.status === "partial").length;
@@ -47,7 +61,9 @@ export default function Dashboard() {
   const billExpiredCount = isDemoMode ? 0 : thisMonthBills.filter(b => b.status === "overdue").length;
 
   // Revenue
-  const monthlyRevenue = isDemoMode ? demoMetrics.monthlyRevenue : payments.filter(p => new Date(p.created_at) >= thisMonthStart).reduce((sum, p) => sum + Number(p.amount), 0);
+  const monthlyRevenue = isDemoMode ? demoMetrics.monthlyRevenue : payments
+    .filter(p => new Date(p.created_at) >= thisMonthStart)
+    .reduce((sum, p) => sum + Number(p.amount), 0);
   const totalBilled = isDemoMode ? 9300 : thisMonthBills.reduce((sum, b) => sum + Number(b.amount), 0);
   const collectionRate = isDemoMode ? demoMetrics.collectionRate : (totalBilled > 0 ? ((monthlyRevenue / totalBilled) * 100) : 0);
 
@@ -81,7 +97,7 @@ export default function Dashboard() {
             {now.toLocaleDateString("en-US", { month: "long", year: "numeric" })} — your ISP at a glance
           </p>
         </div>
-        <Button size="sm" className="gap-1.5" onClick={() => navigate("/dashboard/finance/accounting")}>
+        <Button size="sm" className="gap-1.5" onClick={() => navigate("/dashboard/accounting")}>
           <Calculator className="h-4 w-4" />
           <span className="hidden sm:inline">Accounting Dashboard</span>
         </Button>
@@ -98,9 +114,9 @@ export default function Dashboard() {
         inactiveCustomers={inactiveCustomers}
         suspendedCustomers={suspendedCustomers}
         newCustomersThisMonth={newCustomersThisMonth}
-        renewedCustomers={0}
-        deactivatedCustomers={0}
-        expiredCustomers={0}
+        renewedCustomers={renewedCustomers}
+        deactivatedCustomers={deactivatedCustomers}
+        expiredCustomers={expiredCustomers}
         billedCount={billedCount}
         paidCount={paidCount}
         partiallyPaidCount={partiallyPaidCount}

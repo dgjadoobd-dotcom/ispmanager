@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import {
-  Server, Plus, RefreshCw, Edit, Trash2, MoreVertical, Search,
-  CheckCircle, XCircle, Network as NetworkIcon, ChevronRight,
+  Server, Plus, RefreshCw, Edit, Trash2, Search,
+  CheckCircle, XCircle, Network as NetworkIcon, ChevronRight, Wifi, Loader2, Radio,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,8 +13,11 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   useOltDevices, useCreateOltDevice, useUpdateOltDevice, useDeleteOltDevice,
+  useTestOltConnection, useLiveOnus,
   type OltDevice,
 } from "@/hooks/useOltDevices";
 import { OltDeviceFormDialog } from "@/components/olt/OltDeviceFormDialog";
@@ -28,11 +31,14 @@ export default function OltDevicesPage() {
   const createDevice = useCreateOltDevice();
   const updateDevice = useUpdateOltDevice();
   const deleteDevice = useDeleteOltDevice();
+  const testConnection = useTestOltConnection();
 
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<"add" | "edit">("add");
   const [editingDevice, setEditingDevice] = useState<OltDevice | null>(null);
   const [portsDevice, setPortsDevice] = useState<OltDevice | null>(null);
+  const [onuDevice, setOnuDevice] = useState<OltDevice | null>(null);
+  const [testingId, setTestingId] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
   const [entriesPerPage, setEntriesPerPage] = useState(10);
@@ -40,6 +46,12 @@ export default function OltDevicesPage() {
 
   const handleAdd = () => { setEditingDevice(null); setFormMode("add"); setFormOpen(true); };
   const handleEdit = (d: OltDevice) => { setEditingDevice(d); setFormMode("edit"); setFormOpen(true); };
+
+  const handleTestConnection = async (device: OltDevice) => {
+    setTestingId(device.id);
+    try { await testConnection.mutateAsync(device); }
+    finally { setTestingId(null); }
+  };
 
   const handleSubmit = async (data: Partial<OltDevice>) => {
     if (formMode === "edit" && data.id) {
@@ -192,15 +204,52 @@ export default function OltDevicesPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center justify-center gap-1">
-                      <Button variant="ghost" size="icon" className="h-7 w-7" title="Edit" onClick={() => handleEdit(device)}>
-                        <Edit className="h-3.5 w-3.5 text-primary" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" title="Ports" onClick={() => setPortsDevice(device)}>
-                        <NetworkIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" title="Delete" onClick={() => deleteDevice.mutate(device.id)}>
-                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEdit(device)}>
+                            <Edit className="h-3.5 w-3.5 text-primary" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Edit</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost" size="icon" className="h-7 w-7"
+                            disabled={testingId === device.id}
+                            onClick={() => handleTestConnection(device)}
+                          >
+                            {testingId === device.id
+                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              : <Wifi className="h-3.5 w-3.5 text-success" />}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Test Connection</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setOnuDevice(device)}>
+                            <Radio className="h-3.5 w-3.5 text-blue-500" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Live ONUs</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setPortsDevice(device)}>
+                            <NetworkIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>PON Ports</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => deleteDevice.mutate(device.id)}>
+                            <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Delete</TooltipContent>
+                      </Tooltip>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -257,6 +306,127 @@ export default function OltDevicesPage() {
           device={portsDevice}
         />
       )}
+
+      {/* Live ONUs Dialog */}
+      {onuDevice && (
+        <LiveOnuDialog device={onuDevice} onClose={() => setOnuDevice(null)} />
+      )}
     </div>
+  );
+}
+
+// ─── Live ONU Dialog ──────────────────────────────────────────────────────────
+
+function LiveOnuDialog({ device, onClose }: { device: OltDevice; onClose: () => void }) {
+  const { data: onus = [], isLoading, error, refetch } = useLiveOnus(device);
+  const [search, setSearch] = useState("");
+
+  const filtered = onus.filter(o =>
+    !search ||
+    (o.serial || "").toLowerCase().includes(search.toLowerCase()) ||
+    (o.mac || "").toLowerCase().includes(search.toLowerCase()) ||
+    (o.description || "").toLowerCase().includes(search.toLowerCase()) ||
+    (o.status || "").toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Radio className="h-5 w-5 text-blue-500" />
+            Live ONUs — {device.name} ({device.host})
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="flex items-center gap-3 py-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search serial, MAC, description..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="pl-9 h-9"
+            />
+          </div>
+          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading}>
+            <RefreshCw className={`h-4 w-4 mr-1 ${isLoading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+          <Badge variant="secondary">{filtered.length} ONUs</Badge>
+        </div>
+
+        <div className="overflow-auto flex-1 rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/60">
+                <TableHead className="text-xs font-bold uppercase w-12">#</TableHead>
+                <TableHead className="text-xs font-bold uppercase">Serial / SN</TableHead>
+                <TableHead className="text-xs font-bold uppercase">MAC</TableHead>
+                <TableHead className="text-xs font-bold uppercase">Port</TableHead>
+                <TableHead className="text-xs font-bold uppercase">Status</TableHead>
+                <TableHead className="text-xs font-bold uppercase">Rx Power</TableHead>
+                <TableHead className="text-xs font-bold uppercase">Description</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-12">
+                    <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2 text-primary" />
+                    <p className="text-sm text-muted-foreground">Fetching live ONU data from {device.host}...</p>
+                  </TableCell>
+                </TableRow>
+              ) : error ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-12 text-destructive">
+                    <XCircle className="h-6 w-6 mx-auto mb-2" />
+                    <p className="text-sm">Failed to fetch ONUs. Check device connectivity.</p>
+                    <p className="text-xs text-muted-foreground mt-1">{(error as Error).message}</p>
+                  </TableCell>
+                </TableRow>
+              ) : filtered.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                    <Radio className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                    <p className="text-sm">No ONUs found on this device</p>
+                    <p className="text-xs mt-1">Make sure the device is reachable and supports HTTP API</p>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filtered.map((onu, idx) => (
+                  <TableRow key={onu.index} className="hover:bg-muted/30">
+                    <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
+                    <TableCell className="font-mono text-xs">{onu.serial || "—"}</TableCell>
+                    <TableCell className="font-mono text-xs">{onu.mac || "—"}</TableCell>
+                    <TableCell className="text-xs">{onu.port || "—"}</TableCell>
+                    <TableCell>
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] font-bold uppercase ${
+                          onu.status?.toLowerCase().includes("online") || onu.status?.toLowerCase().includes("active")
+                            ? "bg-success/10 text-success border-success/30"
+                            : "bg-destructive/10 text-destructive border-destructive/30"
+                        }`}
+                      >
+                        {onu.status || "unknown"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {onu.rx_power ? (
+                        <span className={parseFloat(onu.rx_power) <= -24 ? "text-destructive font-semibold" : "text-success font-semibold"}>
+                          {onu.rx_power} dBm
+                        </span>
+                      ) : "—"}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{onu.description || "—"}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

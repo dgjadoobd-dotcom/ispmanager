@@ -1,4 +1,4 @@
-import { MoreHorizontal, Eye, CreditCard, FileText, Loader2, ChevronRight } from "lucide-react";
+import { MoreHorizontal, Eye, CreditCard, FileText, Loader2, ChevronRight, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -234,6 +234,3 @@ export function CustomerTable() {
     </div>
   );
 }
-
-// Missing import
-import { Users } from "lucide-react";

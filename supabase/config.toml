@@ -1,0 +1,25 @@
+project_id = "fjtwjcnfsghcbgomepdm"
+
+[functions.isp-api]
+verify_jwt = false
+
+[functions.network-sync]
+verify_jwt = false
+
+[functions.verify-payment]
+verify_jwt = false
+
+[functions.auto-suspend]
+verify_jwt = false
+
+[functions.generate-platform-invoices]
+verify_jwt = false
+
+[functions.billing-reminders]
+verify_jwt = false
+
+[functions.send-notification]
+verify_jwt = false
+
+[functions.initiate-payment]
+verify_jwt = true

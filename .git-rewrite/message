@@ -1,0 +1,5 @@
+Connect CustomerForm to DB
+
+Enable real CRUD for customers: hooked into packages data, replaced mock with DB-backed packaging, added tenant-aware submission, localized labels, and loading/error handling in CustomerFormDialog and Customers page.
+
+X-Lovable-Edit-ID: edt-4ad5e1eb-a831-44f2-8f46-3f3cb27c7d21

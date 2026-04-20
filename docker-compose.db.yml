@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: ispmanager-postgres
+    environment:
+      POSTGRES_DB: ispmanager
+      POSTGRES_USER: ispmanager
+      POSTGRES_PASSWORD: y4fTF9MlTiMID8TT
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./setup_local_db.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

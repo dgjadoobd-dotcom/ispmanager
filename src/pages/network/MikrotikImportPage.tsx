@@ -49,6 +49,12 @@ export default function MikrotikImportPage() {
   const combinedData = useMemo(() => {
     return secrets.map(s => {
       const isActive = active.find(a => a.name === s.name);
+      // Normalize disabled field - handle both boolean and string values
+      const isDisabled = s.disabled === true || s.disabled === "true";
+      // Get bandwidth data, handle both byte and bytes property names
+      const txBytes = isActive ? (isActive["tx-bytes"] || isActive["tx-byte"] || "0") : "0";
+      const rxBytes = isActive ? (isActive["rx-bytes"] || isActive["rx-byte"] || "0") : "0";
+      
       return {
         id: s[".id"],
         name: s.name,
@@ -58,10 +64,10 @@ export default function MikrotikImportPage() {
         callerId: isActive?.["caller-id"] || s["caller-id"] || "",
         serverName: isActive?.service || s.service || "",
         uptime: isActive?.uptime || "",
-        tx: isActive ? (isActive["tx-byte"] || isActive["tx-bytes"] || "0") : "0",
-        rx: isActive ? (isActive["rx-byte"] || isActive["rx-bytes"] || "0") : "0",
-        userStatus: s.disabled === "true" ? "disabled" : (isActive ? "active" : "inactive"),
-        enabled: s.disabled === "false",
+        tx: txBytes,
+        rx: rxBytes,
+        userStatus: isDisabled ? "disabled" : (isActive ? "active" : "inactive"),
+        enabled: !isDisabled,
       };
     });
   }, [secrets, active]);

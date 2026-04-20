@@ -1,7 +1,28 @@
 {
-  "name": "vite_react_shadcn_ts",
+  "name": "isp-manager",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "A comprehensive Internet Service Provider (ISP) management system built with React, TypeScript, and modern web technologies.",
+  "author": "Your Name <your.email@example.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/ispmanager.git"
+  },
+  "keywords": [
+    "isp",
+    "management",
+    "billing",
+    "network",
+    "react",
+    "typescript",
+    "supabase",
+    "mikrotik"
+  ],
+  "bugs": {
+    "url": "https://github.com/yourusername/ispmanager/issues"
+  },
+  "homepage": "https://github.com/yourusername/ispmanager#readme",
   "type": "module",
   "scripts": {
     "dev": "vite",

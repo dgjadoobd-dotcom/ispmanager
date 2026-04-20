@@ -8,6 +8,8 @@ import express from "express";
 import cors from "cors";
 import { RouterOSAPI } from "node-routeros";
 import axios from "axios";
+import pkg from 'pg';
+const { Pool } = pkg;
 
 const app = express();
 app.use(express.json());
@@ -18,9 +20,132 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
+// ─── Database Connection ──────────────────────────────────────────────────────
+const pool = new Pool({
+  host: process.env.DB_HOST || 'localhost',
+  port: process.env.DB_PORT || 5432,
+  database: process.env.DB_NAME || 'ispmanager',
+  user: process.env.DB_USER || 'ispmanager',
+  password: process.env.DB_PASSWORD || 'y4fTF9MlTiMID8TT',
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+});
+
+// Test database connection
+pool.on('connect', () => {
+  console.log('Connected to PostgreSQL database');
+});
+
+pool.on('error', (err) => {
+  console.error('Unexpected error on idle client', err);
+  process.exit(-1);
+});
+
 // ─── Health check ─────────────────────────────────────────────────────────────
-app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok", service: "isp-proxy", time: new Date().toISOString() });
+app.get("/api/health", async (_req, res) => {
+  try {
+    // Test database connection
+    await pool.query('SELECT NOW()');
+    res.json({ 
+      status: "ok", 
+      service: "isp-proxy", 
+      database: "connected",
+      time: new Date().toISOString() 
+    });
+  } catch (err) {
+    res.json({ 
+      status: "ok", 
+      service: "isp-proxy", 
+      database: "disconnected",
+      error: err.message,
+      time: new Date().toISOString() 
+    });
+  }
+});
+
+// ─── Database API Endpoints ──────────────────────────────────────────────────
+
+// Get all packages
+app.get("/api/packages", async (req, res) => {
+  try {
+    const tenantId = req.query.tenant_id || '550e8400-e29b-41d4-a716-446655440000'; // Default demo tenant
+    const result = await pool.query(
+      'SELECT * FROM packages WHERE tenant_id = $1 ORDER BY monthly_price',
+      [tenantId]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Get all customers
+app.get("/api/customers", async (req, res) => {
+  try {
+    const tenantId = req.query.tenant_id || '550e8400-e29b-41d4-a716-446655440000';
+    const result = await pool.query(`
+      SELECT c.*, p.name as package_name, p.speed_label, p.monthly_price 
+      FROM customers c 
+      LEFT JOIN packages p ON c.package_id = p.id 
+      WHERE c.tenant_id = $1 
+      ORDER BY c.created_at DESC
+    `, [tenantId]);
+    res.json({ success: true, data: result.rows });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Create customer
+app.post("/api/customers", async (req, res) => {
+  try {
+    const { name, email, phone, address, package_id, tenant_id } = req.body;
+    const result = await pool.query(`
+      INSERT INTO customers (name, email, phone, address, package_id, tenant_id, connection_status) 
+      VALUES ($1, $2, $3, $4, $5, $6, 'pending') 
+      RETURNING *
+    `, [name, email, phone, address, package_id, tenant_id || '550e8400-e29b-41d4-a716-446655440000']);
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Get bills
+app.get("/api/bills", async (req, res) => {
+  try {
+    const tenantId = req.query.tenant_id || '550e8400-e29b-41d4-a716-446655440000';
+    const result = await pool.query(`
+      SELECT b.*, c.name as customer_name, c.phone, p.name as package_name 
+      FROM bills b 
+      JOIN customers c ON b.customer_id = c.id 
+      LEFT JOIN packages p ON c.package_id = p.id 
+      WHERE b.tenant_id = $1 
+      ORDER BY b.created_at DESC
+    `, [tenantId]);
+    res.json({ success: true, data: result.rows });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Get payments
+app.get("/api/payments", async (req, res) => {
+  try {
+    const tenantId = req.query.tenant_id || '550e8400-e29b-41d4-a716-446655440000';
+    const result = await pool.query(`
+      SELECT p.*, c.name as customer_name, c.phone, b.amount as bill_amount 
+      FROM payments p 
+      JOIN customers c ON p.customer_id = c.id 
+      LEFT JOIN bills b ON p.bill_id = b.id 
+      WHERE p.tenant_id = $1 
+      ORDER BY p.created_at DESC
+    `, [tenantId]);
+    res.json({ success: true, data: result.rows });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // ─── MikroTik API ─────────────────────────────────────────────────────────────
